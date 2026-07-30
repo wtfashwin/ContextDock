@@ -1,10 +1,10 @@
 import ContextDockKit
 import SwiftUI
 
-/// Root SwiftUI content for the island panel. Dark glass, centre focus,
-/// details only on demand. Uses system Material as the glass base — a real
-/// native material, not stacked fake layers. (glassEffect adoption is gated
-/// behind availability when building with an SDK that provides it.)
+/// Root SwiftUI content for the island panel. Attached flush to the top of
+/// the screen (Dynamic Island style): square top corners, rounded bottom.
+/// Real system material glass that follows the system light/dark theme —
+/// no forced colour scheme, no stacked fake layers.
 struct IslandRootView: View {
     @Bindable var model: DockModel
     let controller: IslandPanelController
@@ -27,19 +27,34 @@ struct IslandRootView: View {
 
 // MARK: - Glass container
 
-struct GlassCapsule<Content: View>: View {
-    var cornerRadius: CGFloat = 17
+/// Top-attached glass: square top edge, continuous rounded bottom corners.
+/// Adapts to the system theme via material + hierarchical foreground styles.
+struct IslandGlass<Content: View>: View {
+    var bottomRadius: CGFloat = 20
     @ViewBuilder var content: Content
+
+    private var shape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: 0, bottomLeadingRadius: bottomRadius,
+            bottomTrailingRadius: bottomRadius, topTrailingRadius: 0,
+            style: .continuous
+        )
+    }
+
     var body: some View {
         content
-            .background(.black.opacity(0.55))
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .background(.regularMaterial)
+            .background(.background.opacity(0.35))
+            .clipShape(shape)
             .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(.white.opacity(0.14), lineWidth: 0.75)
+                shape.strokeBorder(
+                    LinearGradient(
+                        colors: [.primary.opacity(0.02), .primary.opacity(0.14)],
+                        startPoint: .top, endPoint: .bottom
+                    ),
+                    lineWidth: 0.75
+                )
             )
-            .environment(\.colorScheme, .dark)
     }
 }
 
@@ -48,17 +63,17 @@ struct GlassCapsule<Content: View>: View {
 struct CollapsedIsland: View {
     @Bindable var model: DockModel
     var body: some View {
-        GlassCapsule {
+        IslandGlass(bottomRadius: 17) {
             HStack(spacing: 8) {
                 statusDot
                 Text(model.status)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.85))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                 if model.activeAgentCount > 0 {
-                    ProgressView().controlSize(.mini).tint(.white)
+                    ProgressView().controlSize(.mini)
                     Text("\(model.activeAgentCount)")
-                        .font(.system(size: 11)).foregroundStyle(.white.opacity(0.6))
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
                 if model.waitingForUser {
                     Image(systemName: "questionmark.circle.fill")
@@ -91,10 +106,10 @@ struct ExpandedPanel: View {
     @FocusState private var inputFocused: Bool
 
     var body: some View {
-        GlassCapsule(cornerRadius: 22) {
+        IslandGlass(bottomRadius: 24) {
             VStack(spacing: 14) {
                 header
-                Divider().overlay(.white.opacity(0.08))
+                Divider()
                 content
                 Spacer(minLength: 0)
             }
@@ -108,21 +123,21 @@ struct ExpandedPanel: View {
         HStack(spacing: 10) {
             Label(model.repository?.name ?? "No repository", systemImage: "shippingbox")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.8))
+                .foregroundStyle(.primary)
             if let branch = model.repository?.branch {
                 Text(branch).font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(.secondary)
             }
             if let bundle = model.contextBundle {
                 Text("confidence \(Int(bundle.confidence * 100))%")
-                    .font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             Spacer()
             Button {
                 controller.showCollapsed()
             } label: {
                 Image(systemName: "chevron.up.circle.fill")
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.escape, modifiers: [])
@@ -136,8 +151,8 @@ struct ExpandedPanel: View {
             captureView
         case .thinking:
             VStack(spacing: 12) {
-                ProgressView().tint(.white)
-                Text("Matching context…").foregroundStyle(.white.opacity(0.7))
+                ProgressView()
+                Text("Matching context…").foregroundStyle(.secondary)
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         case .planChoices:
             if let plans = model.planSet { PlanChoicesView(model: model, plans: plans) }
@@ -146,7 +161,7 @@ struct ExpandedPanel: View {
         case .error:
             VStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.title)
-                Text(model.lastError ?? "Unknown error").foregroundStyle(.white.opacity(0.8))
+                Text(model.lastError ?? "Unknown error").foregroundStyle(.primary)
                     .multilineTextAlignment(.center)
                 Button("Start over") { model.reset() }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -161,15 +176,19 @@ struct ExpandedPanel: View {
             TextField("What are you working on?", text: $input, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 17))
-                .foregroundStyle(.white)
                 .lineLimit(1...5)
                 .padding(14)
-                .background(.white.opacity(0.06))
+                .background(.primary.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .focused($inputFocused)
                 .onSubmit { model.think(input: input) }
                 .onAppear { inputFocused = true }
             HStack {
+                if !model.activeLessons.isEmpty {
+                    Label("\(model.activeLessons.count) learned preferences active", systemImage: "brain")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .help(model.activeLessons.joined(separator: "\n"))
+                }
                 Spacer()
                 Button("Think") { model.think(input: input) }
                     .keyboardShortcut(.return, modifiers: .command)
@@ -186,7 +205,6 @@ struct ExpandedPanel: View {
 struct PlanChoicesView: View {
     @Bindable var model: DockModel
     let plans: PlanSet
-    @State private var showExplanation = false
 
     var body: some View {
         VStack(spacing: 12) {
@@ -198,16 +216,15 @@ struct PlanChoicesView: View {
                                 HStack(alignment: .top, spacing: 6) {
                                     Text(match.node.title).font(.system(size: 11, weight: .medium))
                                     Text("— \(match.reason)").font(.system(size: 11))
-                                        .foregroundStyle(.white.opacity(0.55))
+                                        .foregroundStyle(.secondary)
                                 }
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }.frame(maxHeight: 90)
                 } label: {
                     Text("Sources used (\(bundle.matches.count)) · \(bundle.explanation)")
-                        .font(.system(size: 11)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
+                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 }
-                .foregroundStyle(.white.opacity(0.8))
             }
             HStack(alignment: .top, spacing: 10) {
                 ForEach(Array(plans.options.enumerated()), id: \.element.id) { index, option in
@@ -225,7 +242,7 @@ struct PlanChoicesView: View {
                     .font(.system(size: 11))
                 Spacer()
                 Text("Press 1, 2, or 3 to choose")
-                    .font(.system(size: 11)).foregroundStyle(.white.opacity(0.4))
+                    .font(.system(size: 11)).foregroundStyle(.tertiary)
             }
         }
     }
@@ -244,7 +261,7 @@ struct PlanCard: View {
                 HStack {
                     Text(option.title)
                         .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                         .lineLimit(2)
                     Spacer()
                 }
@@ -256,22 +273,22 @@ struct PlanCard: View {
                         .background(Capsule().fill(.green.opacity(0.9)))
                 }
                 Text(option.resultLine)
-                    .font(.system(size: 11)).foregroundStyle(.white.opacity(0.75))
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
                     .lineLimit(3)
                 LabeledRow(label: "Size", value: option.workSize.rawValue)
                 LabeledRow(label: "Benefit", value: option.benefit)
                 LabeledRow(label: "Risk", value: option.risk)
                 Spacer(minLength: 0)
                 Text("Press \(shortcut)")
-                    .font(.system(size: 10)).foregroundStyle(.white.opacity(0.35))
+                    .font(.system(size: 10)).foregroundStyle(.tertiary)
             }
             .padding(12)
             .frame(maxWidth: .infinity, minHeight: 220, alignment: .topLeading)
-            .background(.white.opacity(hovering ? 0.1 : isRecommended ? 0.08 : 0.05))
+            .background(.primary.opacity(hovering ? 0.1 : isRecommended ? 0.08 : 0.05))
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
-                    .strokeBorder(isRecommended ? .green.opacity(0.5) : .white.opacity(0.1), lineWidth: 1)
+                    .strokeBorder(isRecommended ? .green.opacity(0.5) : .primary.opacity(0.1), lineWidth: 1)
             )
             .scaleEffect(isRecommended ? 1.02 : 1.0)
         }
@@ -287,8 +304,8 @@ struct LabeledRow: View {
     let value: String
     var body: some View {
         HStack(alignment: .top, spacing: 4) {
-            Text(label + ":").font(.system(size: 10, weight: .semibold)).foregroundStyle(.white.opacity(0.5))
-            Text(value).font(.system(size: 10)).foregroundStyle(.white.opacity(0.7)).lineLimit(2)
+            Text(label + ":").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+            Text(value).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(2)
         }
     }
 }
@@ -301,7 +318,7 @@ struct ChecklistView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let checklist = model.checklist {
-                Text(checklist.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                Text(checklist.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(.primary)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(checklist.items) { item in
@@ -310,40 +327,52 @@ struct ChecklistView: View {
                                     .foregroundStyle(color(for: item.status))
                                 Text(item.action)
                                     .font(.system(size: 12))
-                                    .foregroundStyle(.white.opacity(item.status == .completed ? 0.5 : 0.9))
+                                    .foregroundStyle(item.status == .completed ? .secondary : .primary)
                                     .strikethrough(item.status == .completed)
                                 Spacer()
                                 Text(item.status.rawValue)
-                                    .font(.system(size: 10)).foregroundStyle(.white.opacity(0.4))
+                                    .font(.system(size: 10)).foregroundStyle(.tertiary)
                             }
                         }
                     }
                 }
                 if model.panelState == .checklist {
                     HStack(spacing: 10) {
-                        Text("Send to:").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
+                        Text("Send to:").font(.system(size: 12)).foregroundStyle(.secondary)
+                        agentButton(.claudeCode, title: "Claude Code")
+                        agentButton(.codex, title: "Codex")
                         Button("Demo agent") { model.dispatch(kind: .fake) }
-                        Button("Claude Code") { model.dispatch(kind: .claudeCode) }
-                        Button("Codex") { model.dispatch(kind: .codex) }
                         Spacer()
                         Button("Open note") { model.openObsidianNote() }.font(.system(size: 11))
                     }
                 }
                 if model.panelState == .agentRunning {
                     HStack(spacing: 8) {
-                        ProgressView().controlSize(.small).tint(.white)
-                        Text("Agent running…").font(.system(size: 12)).foregroundStyle(.white.opacity(0.7))
+                        ProgressView().controlSize(.small)
+                        Text("Agent running…").font(.system(size: 12)).foregroundStyle(.secondary)
                     }
                 }
                 if model.panelState == .completed {
                     HStack {
                         Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
-                        Text("Completed").foregroundStyle(.white)
+                        Text("Completed").foregroundStyle(.primary)
                         Spacer()
                         Button("New capture") { model.reset() }
                     }
                 }
             }
+        }
+    }
+
+    /// Learned preferred agent gets the prominent style — the self-learning
+    /// loop made visible.
+    @ViewBuilder private func agentButton(_ kind: AgentKind, title: String) -> some View {
+        if model.preferredAgent == kind {
+            Button("\(title) ★") { model.dispatch(kind: kind) }
+                .buttonStyle(.borderedProminent)
+                .help("Learned preference: this agent has worked well here")
+        } else {
+            Button(title) { model.dispatch(kind: kind) }
         }
     }
 
@@ -365,7 +394,7 @@ struct ChecklistView: View {
         case .failed: .red
         case .waiting, .needsApproval: .yellow
         case .blocked: .orange
-        default: .white.opacity(0.4)
+        default: .secondary.opacity(0.6)
         }
     }
 }

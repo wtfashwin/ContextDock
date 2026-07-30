@@ -54,10 +54,10 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
 
     private func place(size: NSSize) {
         let screen = targetScreen()
-        let visible = screen.visibleFrame
-        // Top centre; visibleFrame already accounts for the menu bar / notch region.
-        let x = visible.midX - size.width / 2
-        let y = visible.maxY - size.height - 6
+        // Flush to the very top of the screen (over the menu-bar region),
+        // Dynamic Island style — the panel level already sits above the bar.
+        let x = screen.frame.midX - size.width / 2
+        let y = screen.frame.maxY - size.height
         panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true, animate: panel.isVisible)
     }
 
