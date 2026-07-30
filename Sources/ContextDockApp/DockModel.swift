@@ -41,6 +41,16 @@ final class DockModel {
         }
     }
 
+    /// Active learned lessons for the current project (self-learning surface).
+    var activeLessons: [String] {
+        LearningEngine.lessons(document.preferences, projectID: contextBundle?.project?.id)
+    }
+
+    /// Agent the learning engine currently trusts most for this project.
+    var preferredAgent: AgentKind? {
+        LearningEngine.preferredAgent(document.preferences, projectID: contextBundle?.project?.id)
+    }
+
     func currentExpandedState() -> PanelState {
         if planSet != nil && selectedPlan == nil { return .planChoices }
         if checklist != nil && session != nil { return .agentRunning }
@@ -52,18 +62,25 @@ final class DockModel {
 
     func bootstrap() {
         if let loaded = try? store.load() { document = loaded }
-        seedDemoDataIfEmpty()
-        // Detect repository from the front process's likely cwd is not possible
-        // without extra permissions; use last-known or home-based detection.
-        let candidates = [
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop/IRIS_Allo_MVP_Dec_2025"),
-            URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
-        ]
+        refreshRepository()
+    }
+
+    /// Auto-detects the active repository: last used if still valid, else the
+    /// most recently active git repo under Desktop/Projects/Developer/etc.
+    func refreshRepository() {
+        let lastUsed = document.settings["lastRepositoryPath"]
         Task.detached { [resolver] in
-            let repo = candidates.compactMap { resolver.resolveRepository(at: $0) }.first
+            let scanner = RepoScanner(resolver: resolver)
+            let repo = scanner.detectActiveRepository(lastUsedPath: lastUsed)
             await MainActor.run { [weak self] in
-                self?.repository = repo
-                self?.status = repo.map { "\($0.name) · \($0.branch ?? "?")" } ?? "No repository"
+                guard let self else { return }
+                self.repository = repo
+                self.status = repo.map { "\($0.name) · \($0.branch ?? "?")" } ?? "No repository"
+                if let repo {
+                    self.document.settings["lastRepositoryPath"] = repo.rootPath
+                    RepoKnowledgeIngestor().ingest(repository: repo, into: &self.document)
+                    self.persist()
+                }
             }
         }
     }
@@ -76,23 +93,6 @@ final class DockModel {
         document.audit.append(audit)
     }
 
-    private func seedDemoDataIfEmpty() {
-        guard document.projects.isEmpty else { return }
-        let project = Project(id: StableID("project-iris-v2"), name: "IRIS V2", aliases: ["iris", "iris v2"], obsidianFolder: "Projects")
-        document.projects = [project]
-        document.mappings = [
-            RepositoryMapping(repositoryName: "IRIS_Allo_MVP_Dec_2025", projectID: project.id),
-            RepositoryMapping(repositoryName: "Sylox_v2_Core_App", projectID: project.id),
-        ]
-        var graph = document.graph
-        graph.upsertNode(KnowledgeNode(id: StableID("node-f09"), title: "F09 Access Governance", type: .feature, projectID: project.id, source: "seed", tags: ["F09"], summary: "Access governance PRD work"))
-        graph.upsertNode(KnowledgeNode(id: StableID("node-dec-f12"), title: "F12 is a separate feature", type: .decision, projectID: project.id, source: "seed"))
-        graph.upsertNode(KnowledgeNode(id: StableID("node-dec-pg"), title: "PostgreSQL and OneDrive first", type: .decision, projectID: project.id, source: "seed"))
-        graph.addEdge(KnowledgeEdge(sourceID: StableID("node-dec-f12"), targetID: StableID("node-f09"), type: .relatesTo, evidence: "seed"))
-        document.graph = graph
-        persist()
-    }
-
     // MARK: - Think flow
 
     func think(input: String) {
@@ -103,19 +103,45 @@ final class DockModel {
             userInput: input, repository: repository,
             graph: document.graph, projects: document.projects, mappings: document.mappings
         )
-        let planner = planner
+        let planner = makePlanner()
         Task {
             let bundle = ContextEngine().resolve(engineInput)
             do {
                 let plans = try await planner.plan(PlannerInput(request: input, context: bundle))
                 self.contextBundle = bundle
-                self.planSet = plans
+                self.planSet = self.applyLearnedRecommendation(to: plans, projectID: bundle.project?.id)
                 self.panelState = .planChoices
             } catch {
                 self.lastError = "\(error)"
                 self.panelState = .error
             }
         }
+    }
+
+    /// AI planner when a CLI is installed (learned agent preference decides
+    /// which), local rules otherwise. Never hard-coded to one provider.
+    private func makePlanner() -> any PlannerEngine {
+        let projectID = contextBundle?.project?.id
+        let lessons = LearningEngine.lessons(document.preferences, projectID: projectID)
+        let preferred = LearningEngine.preferredAgent(document.preferences, projectID: projectID)
+        let order: [AgentKind] = preferred == .codex ? [.codex, .claudeCode] : [.claudeCode, .codex]
+        for kind in order {
+            let name = kind == .claudeCode ? "claude" : "codex"
+            if let path = Self.findExecutable(name) {
+                return CLIPlanner(kind: kind, executablePath: path, lessons: lessons)
+            }
+        }
+        return LocalRulesPlanner()
+    }
+
+    /// Learned plan-kind preference re-points the recommendation badge.
+    private func applyLearnedRecommendation(to plans: PlanSet, projectID: StableID?) -> PlanSet {
+        guard let kind = LearningEngine.preferredPlanKind(document.preferences, projectID: projectID),
+              let match = plans.options.first(where: { $0.kind == kind })
+        else { return plans }
+        var plans = plans
+        plans.recommendedID = match.id
+        return plans
     }
 
     func select(plan: PlanOption) {
@@ -126,6 +152,7 @@ final class DockModel {
         self.checklist = checklist
         document.checklists.append(checklist)
         document.audit.append(AuditEvent(action: "plan.selected", detail: plan.title))
+        LearningEngine.recordPlanChoice(&document.preferences, kind: plan.kind, projectID: bundle.project?.id)
         persist()
         writeChecklistToVault(checklist, project: bundle.project)
         panelState = .checklist
@@ -215,10 +242,22 @@ final class DockModel {
             activeAgentCount = 0
             panelState = .completed
             status = "Completed"
+            if event.adapter != .fake {
+                LearningEngine.recordAgentOutcome(
+                    &document.preferences, agent: event.adapter, succeeded: true,
+                    projectID: contextBundle?.project?.id
+                )
+            }
         case .failed:
             activeAgentCount = 0
             lastError = event.summary
             panelState = .error
+            if event.adapter != .fake {
+                LearningEngine.recordAgentOutcome(
+                    &document.preferences, agent: event.adapter, succeeded: false,
+                    projectID: contextBundle?.project?.id
+                )
+            }
         case .sessionEnded:
             activeAgentCount = 0
         default:
