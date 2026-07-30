@@ -16,7 +16,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.showCollapsed()
         registerGlobalHotKey()
         startEventSocket()
+        observeScreenLock()
         model.bootstrap()
+    }
+
+    /// Fresh start after every screen lock: persist on lock, re-detect the
+    /// active repository and reset the island on unlock.
+    private func observeScreenLock() {
+        let center = DistributedNotificationCenter.default()
+        center.addObserver(forName: .init("com.apple.screenIsLocked"), object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                (NSApp.delegate as? AppDelegate)?.model.persist()
+            }
+        }
+        center.addObserver(forName: .init("com.apple.screenIsUnlocked"), object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                guard let self = NSApp.delegate as? AppDelegate else { return }
+                self.model.reset()
+                self.model.refreshRepository()
+                self.panelController?.showCollapsed()
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
