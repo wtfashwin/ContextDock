@@ -183,7 +183,7 @@ import Testing
         #expect(s2.updatedAt == s1.updatedAt)
     }
 
-    @Test func packCelebrationsFireOnce() {
+        @Test func packCelebrationsFireOnce() {
         let before = IslandSettings()
         var after = IslandSettings()
         after.failuresSeen = 3
@@ -192,5 +192,33 @@ import Testing
         celebrated.celebratedStyles = ["war"]
         #expect(PetStore.newlyUnlocked(before: before, after: celebrated).isEmpty)
         #expect(!PetStore.celebrationLine(for: .abyss).isEmpty)
+    }
+}
+
+@Suite struct RepoFastPathTests {
+    @Test func validLastUsedSkipsRootEnumeration() throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("cdfast-\(UUID().uuidString)")
+        try fm.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: base) }
+        // A decoy root containing a "newer" repo: fast path must ignore it.
+        let decoyRoot = base.appendingPathComponent("roots")
+        let decoyRepo = decoyRoot.appendingPathComponent("decoy")
+        try fm.createDirectory(at: decoyRepo, withIntermediateDirectories: true)
+        let git = GitRunner()
+        _ = git.run(["init", "-q"], in: decoyRepo)
+        // The real last-used repo elsewhere.
+        let mine = base.appendingPathComponent("mine")
+        try fm.createDirectory(at: mine, withIntermediateDirectories: true)
+        _ = git.run(["init", "-q"], in: mine)
+        _ = git.run(["config", "user.email", "t@e.com"], in: mine)
+        _ = git.run(["config", "user.name", "T"], in: mine)
+        try "x".write(to: mine.appendingPathComponent("f.txt"), atomically: true, encoding: .utf8)
+        _ = git.run(["add", "."], in: mine)
+        _ = git.run(["commit", "-q", "-m", "i"], in: mine)
+        let found = RepoScanner().scan(roots: [decoyRoot], lastUsedPath: mine.path)
+        #expect(found.count == 1)
+        #expect(URL(fileURLWithPath: found.first?.rootPath ?? "").standardizedFileURL.path
+            == mine.standardizedFileURL.path)
     }
 }

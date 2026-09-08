@@ -30,6 +30,21 @@ The current SDK path builds with system `ultraThinMaterial` + dark tint +
 hairline border (real native material, one layer). When built against an SDK
 exposing Liquid Glass APIs, `GlassCapsule` is the single place to adopt them
 behind `if #available`.
+(Superseded by ADR-007 once SDK 26.5 + macOS 26.6 runtime were confirmed.)
+
+**ADR-007 — AppKit owns the glass; SwiftUI stays transparent inside it.**
+`NSGlassEffectView.regular` (macOS 26+, verified in SDK 26.5) is the sole
+material owner for the expanded island, with `NSVisualEffectView`
+(`.behindWindow`, `.hudWindow`) as the named fallback and an opaque
+presentation under Reduce Transparency. SwiftUI content inside renders
+transparent (`nativeGlassHost` env) — no stacked `.glassEffect`/materials.
+One retained `NSPanel` holds two retained `NSHostingView`s (black collar +
+transparent expanded tree), visibility-toggled with a 0.16s crossfade, never
+rebuilt. Collapsed stays pure black (hardware fusion, like Apple's island).
+Proven first in isolation (`GlassProbe.swift`, Debug menu). Window level
+`.screenSaver` is the minimum covering the menu bar (`.statusBar` renders
+under it). Motion: single 0.36s/0.9 morph, 120/250ms hover debounce with
+cancellation, no looping idle effects; celebrations are one-shot.
 
 ## Module map
 

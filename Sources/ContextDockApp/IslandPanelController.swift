@@ -313,6 +313,12 @@ final class IslandPanelController: NSObject, NSWindowDelegate {
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        if model.panelState != .collapsed { showCollapsed() }
+        // Hop, never re-enter: AppKit calls this synchronously (possibly
+        // mid-render), and synchronous MainActor re-entry was implicated in
+        // the exclusivity trap. Async hop converges to the same state.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if self.model.panelState != .collapsed { self.showCollapsed() }
+        }
     }
 }

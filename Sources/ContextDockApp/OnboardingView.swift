@@ -17,7 +17,7 @@ struct OnboardingView: View {
     @State private var miniTaps = 0
     @State private var logLines: [String] = []
     @State private var spotlight: AgentKind = .claudeCode
-    @State private var previewTimer: Timer?
+    @Namespace private var glass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var heroes: [AgentKind] {
@@ -31,12 +31,17 @@ struct OnboardingView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            // Hero residents march in per page.
-            HStack(spacing: 2) {
-                ForEach(heroes, id: \.rawValue) { kind in
-                    Text(PetStore.pet(for: kind, style: model.islandSettings.petStyle).emoji)
-                        .font(.system(size: 30))
-                        .transition(.scale.combined(with: .opacity))
+            // Hero residents march in per page — one shared glass surface,
+            // stable per-agent IDs morph them instead of popping.
+            PetGlassContainer {
+                HStack(spacing: 12) {
+                    ForEach(heroes, id: \.rawValue) { kind in
+                        Text(PetStore.pet(for: kind, style: model.islandSettings.petStyle).emoji)
+                            .font(.system(size: 28))
+                            .padding(6)
+                            .petGlassTile(id: "hero-\(kind.rawValue)", namespace: glass)
+                            .transition(.scale.combined(with: .opacity))
+                    }
                 }
             }
             .id("\(page)-\(model.islandSettings.petStyle.rawValue)")
@@ -186,21 +191,24 @@ struct OnboardingView: View {
             .background(.quaternary.opacity(0.5))
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .padding(.horizontal, 40)
-            // Audition row: tap anyone.
-            HStack(spacing: 6) {
-                ForEach(AgentKind.allCases, id: \.rawValue) { kind in
-                    Button {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.65)) {
-                            spotlight = kind
+            // Audition row: tap anyone. Interactive glass reacts to the pointer.
+            PetGlassContainer {
+                HStack(spacing: 10) {
+                    ForEach(AgentKind.allCases, id: \.rawValue) { kind in
+                        Button {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.65)) {
+                                spotlight = kind
+                            }
+                        } label: {
+                            Text(PetStore.pet(for: kind, style: model.islandSettings.petStyle).emoji)
+                                .font(.system(size: 22))
+                                .padding(6)
+                                .background(Circle().fill(spotlight == kind ? Color.accentColor.opacity(0.25) : .clear))
                         }
-                    } label: {
-                        Text(PetStore.pet(for: kind, style: model.islandSettings.petStyle).emoji)
-                            .font(.system(size: 22))
-                            .padding(6)
-                            .background(Circle().fill(spotlight == kind ? Color.accentColor.opacity(0.25) : .clear))
+                        .buttonStyle(.plain)
+                        .petGlassTile(id: "audition-\(kind.rawValue)", namespace: glass, interactive: true)
+                        .help(PetStore.pet(for: kind, style: model.islandSettings.petStyle).name)
                     }
-                    .buttonStyle(.plain)
-                    .help(PetStore.pet(for: kind, style: model.islandSettings.petStyle).name)
                 }
             }
             Picker("", selection: Binding(
@@ -245,7 +253,7 @@ struct OnboardingView: View {
 
     private var navRow: some View {
         HStack {
-            if page > 0 { Button("Back") { withNav { page -= 1 } } }
+            if page > 0 { Button("Back") { withNav { page -= 1 } }.modifier(GlassSecondary()) }
             else { Button("Skip") { finish() }.foregroundStyle(.secondary) }
             Spacer()
             HStack(spacing: 6) {

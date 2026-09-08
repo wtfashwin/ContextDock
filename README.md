@@ -78,6 +78,8 @@ open build/ContextDock.app
 # Or open the package directly in Xcode
 open Package.swift
 ```
+#Stop APPLICATION
+pkill -f ContextDock; echo done
 
 Once it's running, press Option+Space anywhere to open the island, capture a thought, pick a plan, and let Context Dock track it through to completion.
 

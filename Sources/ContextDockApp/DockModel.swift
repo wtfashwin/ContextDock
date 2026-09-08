@@ -3,6 +3,13 @@ import ContextDockKit
 import Foundation
 import Observation
 
+/// Reference-type document box. Swift value-type exclusivity traps killed
+/// the app once (view read vs re-entrant write on the struct); a stable
+/// class identity removes that crash class entirely. MainActor-confined.
+private final class DocBox {
+    var doc = StoreDocument()
+}
+
 /// MainActor UI state + orchestration. All engine work runs off the main thread.
 @Observable
 @MainActor
@@ -38,26 +45,26 @@ final class DockModel {
     var showSources = false
 
     // Persistence
-    private var document = StoreDocument()
+    private let docBox = DocBox()
     private let store = LocalStore()
     private let planner = LocalRulesPlanner()
     private let resolver = ProjectResolver()
     var vaultPath: String? {
-        get { document.settings["vaultPath"] }
+        get { docBox.doc.settings["vaultPath"] }
         set {
-            document.settings["vaultPath"] = newValue
+            docBox.doc.settings["vaultPath"] = newValue
             persist()
         }
     }
 
     /// Active learned lessons for the current project (self-learning surface).
     var activeLessons: [String] {
-        LearningEngine.lessons(document.preferences, projectID: contextBundle?.project?.id)
+        LearningEngine.lessons(docBox.doc.preferences, projectID: contextBundle?.project?.id)
     }
 
     /// Agent the learning engine currently trusts most for this project.
     var preferredAgent: AgentKind? {
-        LearningEngine.preferredAgent(document.preferences, projectID: contextBundle?.project?.id)
+        LearningEngine.preferredAgent(docBox.doc.preferences, projectID: contextBundle?.project?.id)
     }
 
     func currentExpandedState() -> PanelState {
@@ -70,26 +77,32 @@ final class DockModel {
     // MARK: - Lifecycle
 
     func bootstrap() {
-        if let loaded = try? store.load() { document = loaded }
-        islandSettings = IslandSettings.decode(from: document.settings["island"])
+        if let loaded = try? store.load() { docBox.doc = loaded }
+        islandSettings = IslandSettings.decode(from: docBox.doc.settings["island"])
         refreshRepository()
     }
 
     /// Auto-detects the active repository: last used if still valid, else the
     /// most recently active git repo under Desktop/Projects/Developer/etc.
+    ///
+    /// Crash rule: detection AND collection run detached (git + directory
+    /// reads block in waitUntilExit and spin the runloop — on MainActor that
+    /// re-enters SwiftUI mid-`inout`). Only the fast, non-blocking apply
+    /// hops back to the main actor.
     func refreshRepository() {
-        let lastUsed = document.settings["lastRepositoryPath"]
-        Task.detached { [resolver] in
+        let lastUsed = docBox.doc.settings["lastRepositoryPath"]
+        Task.detached(priority: .utility) { [resolver] in
             let scanner = RepoScanner(resolver: resolver)
             let repo = scanner.detectActiveRepository(lastUsedPath: lastUsed)
+            let collected = repo.map { RepoKnowledgeIngestor().collect(repository: $0) }
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.repository = repo
                 self.status = repo.map { "\($0.name) · \($0.branch ?? "?")" } ?? "No repository"
-                if let repo {
-                    self.document.settings["lastRepositoryPath"] = repo.rootPath
-                    RepoKnowledgeIngestor().ingest(repository: repo, into: &self.document)
-                    self.persist()
+                if let repo, let collected {
+                    self.docBox.doc.settings["lastRepositoryPath"] = repo.rootPath
+                    RepoKnowledgeIngestor().apply(collected, for: repo, into: &self.docBox.doc)
+                    self.schedulePersist()
                 }
             }
         }
@@ -98,15 +111,15 @@ final class DockModel {
     /// Immediate flush (terminate / lock / explicit saves). Cancels debounce first.
     func persist() {
         persistGen += 1
-        document.settings["island"] = islandSettings.encode()
-        var doc = document
+        docBox.doc.settings["island"] = islandSettings.encode()
+        var doc = docBox.doc
         if doc.events.count > 5000 { doc.events.removeFirst(doc.events.count - 5000) }
         if doc.audit.count > 2000 { doc.audit.removeFirst(doc.audit.count - 2000) }
         try? store.save(doc)
     }
 
     func recordAudit(_ audit: AuditEvent) {
-        document.audit.append(audit)
+        docBox.doc.audit.append(audit)
     }
 
     // MARK: - Think flow
@@ -117,7 +130,7 @@ final class DockModel {
         lastError = nil
         let engineInput = ContextEngineInput(
             userInput: input, repository: repository,
-            graph: document.graph, projects: document.projects, mappings: document.mappings
+            graph: docBox.doc.graph, projects: docBox.doc.projects, mappings: docBox.doc.mappings
         )
         let planner = makePlanner()
         Task {
@@ -138,8 +151,8 @@ final class DockModel {
     /// which), local rules otherwise. Never hard-coded to one provider.
     private func makePlanner() -> any PlannerEngine {
         let projectID = contextBundle?.project?.id
-        let lessons = LearningEngine.lessons(document.preferences, projectID: projectID)
-        let preferred = LearningEngine.preferredAgent(document.preferences, projectID: projectID)
+        let lessons = LearningEngine.lessons(docBox.doc.preferences, projectID: projectID)
+        let preferred = LearningEngine.preferredAgent(docBox.doc.preferences, projectID: projectID)
         let order: [AgentKind] = preferred == .codex ? [.codex, .claudeCode] : [.claudeCode, .codex]
         for kind in order {
             let name = kind == .claudeCode ? "claude" : "codex"
@@ -152,7 +165,7 @@ final class DockModel {
 
     /// Learned plan-kind preference re-points the recommendation badge.
     private func applyLearnedRecommendation(to plans: PlanSet, projectID: StableID?) -> PlanSet {
-        guard let kind = LearningEngine.preferredPlanKind(document.preferences, projectID: projectID),
+        guard let kind = LearningEngine.preferredPlanKind(docBox.doc.preferences, projectID: projectID),
               let match = plans.options.first(where: { $0.kind == kind })
         else { return plans }
         var plans = plans
@@ -166,9 +179,9 @@ final class DockModel {
         let notePath = "ContextDock/Projects/\(bundle.project?.name ?? "Inbox").md"
         let checklist = ChecklistBuilder.build(from: plan, context: bundle, notePath: notePath)
         self.checklist = checklist
-        document.checklists.append(checklist)
-        document.audit.append(AuditEvent(action: "plan.selected", detail: plan.title))
-        LearningEngine.recordPlanChoice(&document.preferences, kind: plan.kind, projectID: bundle.project?.id)
+        docBox.doc.checklists.append(checklist)
+        docBox.doc.audit.append(AuditEvent(action: "plan.selected", detail: plan.title))
+        LearningEngine.recordPlanChoice(&docBox.doc.preferences, kind: plan.kind, projectID: bundle.project?.id)
         persist()
         writeChecklistToVault(checklist, project: bundle.project)
         panelState = .checklist
@@ -189,7 +202,7 @@ final class DockModel {
         lines += checklist.items.map { "- [ ] \($0.action) ^\($0.id.raw)" }
         do {
             try vault.appendToSection(notePath: notePath, heading: "Current work", lines: lines)
-            document.audit.append(AuditEvent(action: "vault.write", detail: notePath))
+            docBox.doc.audit.append(AuditEvent(action: "vault.write", detail: notePath))
         } catch {
             lastError = "Vault write failed: \(error)"
         }
@@ -230,16 +243,21 @@ final class DockModel {
         }
         panelState = .agentRunning
         activeAgentCount = 1
-        Task {
+        // Detached: CLI adapters block in waitUntilExit for the whole agent
+        // run — on MainActor that freezes the island AND spins the runloop
+        // into re-entrant renders. Events already hop back per event.
+        Task.detached(priority: .userInitiated) {
             do {
                 let session = try await adapter.dispatch(task: package) { event in
                     Task { @MainActor in self.ingest(event: event) }
                 }
-                self.session = session
+                await MainActor.run { [weak self] in self?.session = session }
             } catch {
-                self.lastError = "Dispatch failed: \(error)"
-                self.panelState = .error
-                self.activeAgentCount = 0
+                await MainActor.run { [weak self] in
+                    self?.lastError = "Dispatch failed: \(error)"
+                    self?.panelState = .error
+                    self?.activeAgentCount = 0
+                }
             }
         }
     }
@@ -279,7 +297,7 @@ final class DockModel {
     var midnightMode = false
 
     // Debounced persistence: ingest bursts used to JSON-encode the whole
-    // document on the main thread per event. Now: mark dirty, encode the
+    // docBox.doc on the main thread per event. Now: mark dirty, encode the
     // value-type copy off-main once quiet for 1.5s, single-writer queue.
     private var persistGen = 0
     private static let persistQueue = DispatchQueue(label: "contextdock.persist", qos: .utility)
@@ -291,7 +309,7 @@ final class DockModel {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             await MainActor.run { [weak self] in
                 guard let self, gen == self.persistGen else { return }
-                var doc = self.document
+                var doc = self.docBox.doc
                 if doc.events.count > 5000 { doc.events.removeFirst(doc.events.count - 5000) }
                 if doc.audit.count > 2000 { doc.audit.removeFirst(doc.audit.count - 2000) }
                 Self.persistQueue.async {
@@ -308,7 +326,7 @@ final class DockModel {
         let activeBefore = liveSessions.filter(\.status.isActive).count
         recentEvents.append(event)
         if recentEvents.count > 200 { recentEvents.removeFirst(recentEvents.count - 200) }
-        document.events.append(event)
+        docBox.doc.events.append(event)
         // Live feed: every event updates its session card (O(1) via index).
         // Never mutate liveSessions in place: setFeed diffs, and in-place
         // edits would blind the diff and stale the sortedSessions cache.
@@ -337,7 +355,7 @@ final class DockModel {
             if islandSettings.soundsEnabled { SoundEffects.play(.done) }
             if event.adapter != .fake {
                 LearningEngine.recordAgentOutcome(
-                    &document.preferences, agent: event.adapter, succeeded: true,
+                    &docBox.doc.preferences, agent: event.adapter, succeeded: true,
                     projectID: contextBundle?.project?.id
                 )
             }
@@ -347,7 +365,7 @@ final class DockModel {
             if islandSettings.soundsEnabled { SoundEffects.play(.failed) }
             if event.adapter != .fake {
                 LearningEngine.recordAgentOutcome(
-                    &document.preferences, agent: event.adapter, succeeded: false,
+                    &docBox.doc.preferences, agent: event.adapter, succeeded: false,
                     projectID: contextBundle?.project?.id
                 )
             }
@@ -455,9 +473,9 @@ final class DockModel {
     var activeInsight: PatternInsight?
     var celebrationKey = 0
     private func recordDecision(kind: DecisionKind, label: String) {
-        var journal = document.decisions
+        var journal = docBox.doc.decisions
         DecisionJournal.record(&journal, UserDecision(kind: kind, label: label, projectID: contextBundle?.project?.id))
-        document.decisions = journal
+        docBox.doc.decisions = journal
         let seen = Set(islandSettings.seenInsightIDs.compactMap { StableID($0) })
         if let insight = DecisionJournal.insight(in: journal, seenIDs: seen) {
             activeInsight = insight
@@ -513,42 +531,50 @@ final class DockModel {
     }
 
     /// PID-accurate redirect: tmux pane → iTerm tty → app activation → open-at-cwd.
-    /// Every step best-effort; the audit trail says exactly which step landed.
+    /// Execution runs detached (AppleEvents + waits block); only the audit
+    /// trail hops back. Every step best-effort; the trail says what landed.
     func jump(to session: LiveSession) {
         let target = JumpTarget(session: session)
+        let agentName = session.agent.displayName
+        let task = session.task
+        let terminal = session.terminal
         DockLog.info("jump \(session.agent.rawValue) pid=\(session.pid ?? -1) tty=\(session.tty ?? "-") tmux=\(session.tmuxTarget ?? "-")")
-        var how = "none"
-        // 1. tmux pane first — the only truly exact tab address.
-        if let tmux = session.tmuxTarget, !tmux.isEmpty {
-            for argv in Tmux.focusArguments(target: tmux) {
-                runTool("/opt/homebrew/bin/tmux", argv)
-                runTool("/usr/local/bin/tmux", argv)
+        Task.detached(priority: .userInitiated) {
+            var how = "none"
+            // 1. tmux pane first — the only truly exact tab address.
+            if let tmux = target.tmuxTarget, !tmux.isEmpty {
+                for argv in Tmux.focusArguments(target: tmux) {
+                    Self.runTool("/opt/homebrew/bin/tmux", argv)
+                    Self.runTool("/usr/local/bin/tmux", argv)
+                }
+                Self.activateTerminalApp(target.terminal)
+                how = "tmux \(tmux)"
             }
-            activateTerminalApp(target.terminal)
-            how = "tmux \(tmux)"
-        }
-        // 2. iTerm session by tty — exact tab without tmux.
-        else if target.terminal == "iTerm", let tty = session.tty, !tty.isEmpty {
-            runAppleScript(ItermJump.script(tty: tty))
-            how = "iterm tty \(tty)"
-        }
-        // 3. Activate the running app → modern open → legacy open → hint script.
-        else {
-            if activateTerminalApp(target.terminal) { how = "activate \(target.terminal)" }
-            else if openTerminalApp(target.terminal, at: target.workingDirectory) { how = "open \(target.terminal)" }
+            // 2. iTerm session by tty — exact tab without tmux.
+            else if target.terminal == "iTerm", let tty = target.tty, !tty.isEmpty {
+                Self.runAppleScript(ItermJump.script(tty: tty))
+                how = "iterm tty \(tty)"
+            }
+            // 3. Activate the running app → modern open → legacy open → hint script.
             else {
-                let args = TerminalJump.openArguments(for: target)
-                if runTool("/usr/bin/open", args) { how = "open \(args.joined(separator: " "))" }
-                runAppleScript(TerminalJump.appleScript(for: target))
+                if Self.activateTerminalApp(target.terminal) { how = "activate \(target.terminal)" }
+                else if Self.openTerminalApp(target.terminal, at: target.workingDirectory) { how = "open \(target.terminal)" }
+                else {
+                    let args = TerminalJump.openArguments(for: target)
+                    if Self.runTool("/usr/bin/open", args) { how = "open \(args.joined(separator: " "))" }
+                    Self.runAppleScript(TerminalJump.appleScript(for: target))
+                }
+            }
+            await MainActor.run { [weak self] in
+                self?.recordAudit(AuditEvent(action: "terminal.jump", detail: "\(agentName) \(task) -> \(how)"))
+                self?.recordDecision(kind: .jump, label: "Jumped to \(agentName) in \(terminal)")
+                self?.updateSettings { $0.jumpsMade += 1 }
             }
         }
-        recordAudit(AuditEvent(action: "terminal.jump", detail: "\(session.agent.displayName) \(session.task) -> \(how)"))
-        recordDecision(kind: .jump, label: "Jumped to \(session.agent.displayName) in \(session.terminal)")
-        updateSettings { $0.jumpsMade += 1 }
     }
 
     @discardableResult
-    private func activateTerminalApp(_ terminal: String) -> Bool {
+    nonisolated private static func activateTerminalApp(_ terminal: String) -> Bool {
         if let bundleID = TerminalJump.bundleID(for: terminal),
            let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
             return app.activate()
@@ -558,7 +584,7 @@ final class DockModel {
 
     /// Modern workspace open (async API, best-effort) before shelling to /usr/bin/open.
     @discardableResult
-    private func openTerminalApp(_ terminal: String, at path: String?) -> Bool {
+    nonisolated private static func openTerminalApp(_ terminal: String, at path: String?) -> Bool {
         guard let bundleID = TerminalJump.bundleID(for: terminal),
               let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return false }
         let config = NSWorkspace.OpenConfiguration()
@@ -569,17 +595,18 @@ final class DockModel {
     }
 
     @discardableResult
-    private func runTool(_ path: String, _ args: [String]) -> Bool {
+    nonisolated private static func runTool(_ path: String, _ args: [String]) -> Bool {
         guard FileManager.default.isExecutableFile(atPath: path) else { return false }
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: path)
         proc.arguments = args
+        proc.qualityOfService = .utility
         proc.standardOutput = Pipe(); proc.standardError = Pipe()
         do { try proc.run(); proc.waitUntilExit(); return proc.terminationStatus == 0 }
         catch { return false }
     }
 
-    private func runAppleScript(_ source: String) {
+    nonisolated private static func runAppleScript(_ source: String) {
         guard let appleScript = NSAppleScript(source: source) else { return }
         var err: NSDictionary?
         appleScript.executeAndReturnError(&err)
@@ -641,8 +668,8 @@ final class DockModel {
             }
             checklist.items[index] = item
             self.checklist = checklist
-            if let docIndex = document.checklists.firstIndex(where: { $0.id == checklist.id }) {
-                document.checklists[docIndex] = checklist
+            if let docIndex = docBox.doc.checklists.firstIndex(where: { $0.id == checklist.id }) {
+                docBox.doc.checklists[docIndex] = checklist
             }
         }
     }

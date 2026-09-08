@@ -5,9 +5,9 @@ import SwiftUI
 // Two truths drive this file:
 // 1. The collapsed notch is hardware — pure black, no glass, like Apple's island.
 // 2. Everything expanded is chrome, and chrome on macOS 26 is Liquid Glass:
-//    Apple's own .glassEffect refraction shader, staged with a crisp lens
-//    line, a breathing state rim, and cursor-tracking light. No sweeps,
-//    no waves, no timers pretending to be liquid.
+//    Apple's own NSGlassEffectView refraction shader (AppKit-owned, never
+//    stacked), staged with a crisp lens line, a static state rim, and
+//    cursor-tracking light. No sweeps, no waves, no looping idle effects.
 // Every custom layer short-circuits on Reduce Motion / Reduce Transparency.
 
 enum IslandMotion {
@@ -56,23 +56,18 @@ struct GlassShell<Content: View>: View {
                     .clipShape(shape)
                     .overlay(statusRim(shape: shape, tint: edgeTint))
                     .modifier(IslandHoverLight(enabled: vivid))
-            } else if #available(macOS 26, *), expanded, !reduceTransparency {
-                GlassEffectContainer {
-                    content
-                        .glassEffect(.regular.tint(.black.opacity(0.22)), in: shape)
-                }
-                .overlay(lensLine(in: shape))
-                .overlay(edgeLight(shape: shape, tint: edgeTint, vivid: vivid))
-                .modifier(IslandHoverLight())
+            } else if expanded {
+                // Fallback for unexpected state (should not happen in production):
+                // Simple dark surface; native glass/vibrancy is set up by AppKit layer.
+                content
+                    .background(Color.black.opacity(0.85))
+                    .clipShape(shape)
+                    .overlay(shape.strokeBorder(.white.opacity(0.12), lineWidth: 0.75))
             } else {
+                // Collapsed: pure black, matches hardware cutout exactly.
                 content
                     .background(Color.black)
-                    .background(
-                        LinearGradient(colors: [.white.opacity(expanded ? 0.06 : 0.0), .clear],
-                                       startPoint: .top, endPoint: .bottom)
-                    )
                     .clipShape(shape)
-                    .overlay(shape.strokeBorder(.white.opacity(expanded ? 0.12 : 0.0), lineWidth: 0.75))
             }
         }
     }
@@ -83,35 +78,6 @@ struct GlassShell<Content: View>: View {
             bottomTrailingRadius: bottomRadius, topTrailingRadius: 0,
             style: .continuous
         )
-    }
-
-    /// Crisp lens line + pooled top light + floor depth. Static geometry —
-    /// the "liquid" read comes from the shader plus your cursor.
-    private func lensLine(in shape: UnevenRoundedRectangle) -> some View {
-        ZStack {
-            VStack(spacing: 0) {
-                LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.1)],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(height: 1.5)
-                LinearGradient(colors: [.white.opacity(0.14), .white.opacity(0.0)],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(height: 16)
-                    .blur(radius: 1)
-                Spacer()
-            }
-            VStack {
-                Spacer()
-                LinearGradient(colors: [.clear, .black.opacity(0.3)],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(height: 30)
-            }
-        }
-        .clipShape(shape)
-        .allowsHitTesting(false)
-    }
-
-    private func edgeLight(shape: UnevenRoundedRectangle, tint: Color?, vivid: Bool) -> some View {
-        statusRim(shape: shape, tint: tint)
     }
 
     /// Static state rim. Value-driven only: brightens the moment the tint
@@ -166,16 +132,15 @@ struct GlassCard: ViewModifier {
     func body(content: Content) -> some View {
         Group {
             if hosted {
+                // Inside NSGlassEffectView / NSVisualEffectView: transparent
+                // content with a subtle hairline — AppKit material does the refracting.
                 content
                     .overlay(
                         RoundedRectangle(cornerRadius: radius, style: .continuous)
                             .strokeBorder(tint.opacity(0.22), lineWidth: 1)
                     )
-            } else if #available(macOS 26, *), !reduceTransparency {
-                content
-                    .glassEffect(.regular.tint(tint.opacity(0.08)), in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-                    .overlay(cardLens(radius: radius))
             } else {
+                // Fallback: simple dark card with subtle border.
                 content
                     .background(.white.opacity(0.05))
                     .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
@@ -185,24 +150,6 @@ struct GlassCard: ViewModifier {
                     )
             }
         }
-    }
-
-    private func cardLens(radius: CGFloat) -> some View {
-        ZStack {
-            VStack(spacing: 0) {
-                LinearGradient(colors: [.white.opacity(0.4), .white.opacity(0.06)],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(height: 1)
-                LinearGradient(colors: [.white.opacity(0.1), .clear],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(height: 9)
-                Spacer()
-            }
-            RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .strokeBorder(.white.opacity(0.16), lineWidth: 0.75)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-        .allowsHitTesting(false)
     }
 }
 

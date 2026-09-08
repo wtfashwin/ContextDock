@@ -351,14 +351,8 @@ struct SnippetPane: View {
     }
 
     private func glassJumpFill(for s: LiveSession) -> some View {
-        Group {
-            if #available(macOS 26, *) {
-                Capsule().fill(hoveringJump ? .white : agentColor(s.agent))
-                    .glassEffect(.regular.tint(agentColor(s.agent).opacity(0.25)), in: Capsule())
-            } else {
-                Capsule().fill(hoveringJump ? .white : agentColor(s.agent))
-            }
-        }
+        // Inside native glass host: solid fill, native glass provides refraction.
+        Capsule().fill(hoveringJump ? .white : agentColor(s.agent))
     }
 
     var body: some View {
@@ -498,6 +492,8 @@ struct PermissionCard: View {
                         .keyboardShortcut("y", modifiers: .command)
                         .modifier(GlassPrimary())
                 }
+                Text("Records your call locally — the terminal still decides.")
+                    .font(.system(size: 10)).foregroundStyle(.white.opacity(0.45))
             }
             .padding(11)
             .modifier(GlassCard(radius: 14, tint: .orange))

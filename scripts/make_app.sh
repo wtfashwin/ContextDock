@@ -15,12 +15,14 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleExecutable</key><string>ContextDock</string>
     <key>CFBundleIdentifier</key><string>com.contextdock.app</string>
     <key>CFBundleName</key><string>ContextDock</string>
-    <key>CFBundleShortVersionString</key><string>0.1.0</string>
+    <key>CFBundleShortVersionString</key><string>1.0.0</string>
     <key>CFBundleVersion</key><string>1</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSDesktopFolderUsageDescription</key><string>ContextDock looks for the git repository you are working in so the island can show its branch and status.</string>
+    <key>NSDocumentsFolderUsageDescription</key><string>ContextDock looks for the git repository you are working in so the island can show its branch and status.</string>
 </dict>
 PLIST
 codesign --force --sign - "$APP" 2>/dev/null || true

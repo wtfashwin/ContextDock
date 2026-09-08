@@ -9,6 +9,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Bindable var model: DockModel
+    @Namespace private var glass
 
     var body: some View {
         TabView {
@@ -31,7 +32,7 @@ struct SettingsView: View {
             Toggle("Vivid liquid glass", isOn: Binding(
                 get: { model.islandSettings.glassVivid },
                 set: { v in model.updateSettings { $0.glassVivid = v } }))
-            .help("Specular streaks, lensing rim, animated sheen. Off = quiet matte black.")
+            .help("Lens line, state rim, cursor light. Off = quiet matte black.")
             Toggle("Launch at login", isOn: Binding(
                 get: { model.islandSettings.launchAtLogin },
                 set: { v in model.updateSettings { $0.launchAtLogin = v }; setLoginItem(enabled: v) }))
@@ -57,18 +58,19 @@ struct SettingsView: View {
             Text(lock.open ? st.meaning : "\(st.meaning) \(lock.hint)")
                 .font(.callout).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 10) {
-                ForEach(AgentKind.allCases, id: \.rawValue) { kind in
-                    let pet = PetStore.pet(for: kind, style: st)
-                    VStack(spacing: 2) {
-                        Text(pet.emoji).font(.system(size: 28))
-                        Text(kind.displayName).font(.caption)
-                        Text("“\(pet.name)”").font(.caption2).foregroundStyle(.secondary)
-                        Text(pet.trait).font(.caption2).foregroundStyle(.tertiary).lineLimit(2)
+            PetGlassContainer {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 12) {
+                    ForEach(AgentKind.allCases, id: \.rawValue) { kind in
+                        let pet = PetStore.pet(for: kind, style: st)
+                        VStack(spacing: 2) {
+                            Text(pet.emoji).font(.system(size: 28))
+                            Text(kind.displayName).font(.caption)
+                            Text("“\(pet.name)”").font(.caption2).foregroundStyle(.secondary)
+                            Text(pet.trait).font(.caption2).foregroundStyle(.tertiary).lineLimit(2)
+                        }
+                        .padding(8)
+                        .petGlassTile(id: "settings-\(kind.rawValue)", namespace: glass, interactive: true)
                     }
-                    .padding(8)
-                    .background(.quaternary.opacity(0.4))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
             }
             .padding(.horizontal, 16)
@@ -98,7 +100,7 @@ struct SettingsView: View {
                 Spacer()
                 Button("Preview") {
                     model.eggQuote = "GG — clean board 🤝"
-                }
+                }.modifier(GlassSecondary())
             }
             Text("Tap the notch 5× anytime and a resident says something. Pet quotes live there.")
                 .font(.callout).foregroundStyle(.secondary)
@@ -110,13 +112,16 @@ struct SettingsView: View {
         Form {
             Button("Reinstall agent hooks") { _ = HookInstaller.installAll() }
                 .help("Re-merges ~/.claude/settings.json + writes ~/.contextdock/bin senders.")
+                .modifier(GlassSecondary())
             Button("Replay onboarding") { model.updateSettings { $0.onboarded = false } }
+                .modifier(GlassSecondary())
             Button("Open log file") {
                 let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                     .appendingPathComponent("ContextDock/dock.log")
                 NSWorkspace.shared.open(url)
             }
             .help("Capped at 512KB. IDs and timings only — never your content.")
+            .modifier(GlassSecondary())
             Text("Socket: \(HookInstaller.socketPath())")
                 .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
         }

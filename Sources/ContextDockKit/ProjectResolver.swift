@@ -1,6 +1,11 @@
 import Foundation
 
 /// Runs `/usr/bin/git` with argument arrays only (never shell strings).
+///
+/// MainActor rule: `run` blocks in `waitUntilExit`, which spins the runloop —
+/// called on the main thread it lets SwiftUI re-render mid-`inout` and trips
+/// Swift exclusivity traps (postmortem 2026-09-08). Main-actor callers MUST
+/// use `runAsync` (or run the whole detection in a detached task).
 public struct GitRunner: Sendable {
     public init() {}
 
@@ -9,6 +14,7 @@ public struct GitRunner: Sendable {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = args
         process.currentDirectoryURL = directory
+        process.qualityOfService = .utility
         let out = Pipe()
         process.standardOutput = out
         process.standardError = Pipe()
@@ -21,6 +27,10 @@ public struct GitRunner: Sendable {
         guard process.terminationStatus == 0 else { return nil }
         let data = out.fileHandleForReading.readDataToEndOfFile()
         return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    public func runAsync(_ args: [String], in directory: URL) async -> String? {
+        await Task.detached(priority: .utility) { Self().run(args, in: directory) }.value
     }
 }
 

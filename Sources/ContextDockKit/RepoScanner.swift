@@ -22,9 +22,18 @@ public struct RepoScanner: Sendable {
     }
 
     /// All git repositories directly under the given roots, most recently
-    /// active first. `lastUsedPath`, when still valid, always wins.
+    /// active first. `lastUsedPath`, when still valid, answers immediately
+    /// WITHOUT enumerating the roots: every enumeration of Desktop/Documents
+    /// re-arms a TCC consent dialog while the app is ad-hoc signed (each
+    /// rebuild is a new identity), so the steady state must not scan at all.
+    /// Full scan runs only when the last repo moved or was deleted.
     public func scan(roots: [URL], lastUsedPath: String? = nil) -> [Repository] {
         let fm = FileManager.default
+        if let lastUsedPath,
+           fm.fileExists(atPath: lastUsedPath + "/.git"),
+           let repo = resolver.resolveRepository(at: URL(fileURLWithPath: lastUsedPath)) {
+            return [repo]
+        }
         var candidates: [(url: URL, activity: Date)] = []
         var seen = Set<String>()
 
@@ -69,14 +78,47 @@ public struct RepoScanner: Sendable {
 
 /// Builds knowledge nodes from a real repository — recent commits and
 /// top-level markdown docs — so context is fetched, never hand-seeded.
+///
+/// Split-brain design (postmortem 2026-09-08): `collect` does ALL blocking
+/// I/O (git + directory reads) and runs off the main actor; `apply` only
+/// mutates the document and never blocks, so no `&inout` scope ever spans
+/// a runloop spin. `ingest` remains as the same-thread convenience wrapper.
 public struct RepoKnowledgeIngestor: Sendable {
     private let git: GitRunner
     public init(git: GitRunner = GitRunner()) { self.git = git }
 
-    /// Ensures a project + mapping exist for the repository and refreshes
-    /// its derived nodes in the graph. Derived nodes use stable IDs so
-    /// re-ingesting updates instead of duplicating.
-    public func ingest(repository: Repository, into document: inout StoreDocument) {
+    /// Blocking I/O results. Value type, safe to ferry across actors.
+    public struct CollectedRepo: Sendable {
+        public var commits: [(sha: String, title: String)]
+        public var docNames: [String]
+        public var summary: String
+    }
+
+    public func collect(repository: Repository) -> CollectedRepo {
+        let rootURL = URL(fileURLWithPath: repository.rootPath)
+        var commits: [(String, String)] = []
+        if let log = git.run(["log", "--pretty=%h|%s", "-n", "8"], in: rootURL) {
+            for line in log.split(separator: "\n") {
+                let parts = line.split(separator: "|", maxSplits: 1)
+                guard parts.count == 2 else { continue }
+                commits.append((String(parts[0]), String(parts[1])))
+            }
+        }
+        var docs: [String] = []
+        if let entries = try? FileManager.default.contentsOfDirectory(
+            at: rootURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+            for doc in entries where doc.pathExtension.lowercased() == "md" {
+                docs.append(doc.deletingPathExtension().lastPathComponent)
+            }
+        }
+        return CollectedRepo(
+            commits: commits, docNames: docs,
+            summary: "branch \(repository.branch ?? "?"), \(repository.modifiedFileCount ?? 0) modified files"
+        )
+    }
+
+    /// Fast, non-blocking document mutation. Safe on the main actor.
+    public func apply(_ collected: CollectedRepo, for repository: Repository, into document: inout StoreDocument) {
         let project: Project
         if let mapping = document.mappings.first(where: { $0.repositoryName == repository.name }),
            let existing = document.projects.first(where: { $0.id == mapping.projectID }) {
@@ -92,40 +134,34 @@ public struct RepoKnowledgeIngestor: Sendable {
             project = created
         }
 
-        let rootURL = URL(fileURLWithPath: repository.rootPath)
         var graph = document.graph
-
         graph.upsertNode(KnowledgeNode(
             id: StableID("repo-node-\(repository.name.lowercased())"),
             title: repository.name, type: .repository, projectID: project.id,
             source: "git", sourcePath: repository.rootPath,
-            summary: "branch \(repository.branch ?? "?"), \(repository.modifiedFileCount ?? 0) modified files"
+            summary: collected.summary
         ))
-
-        if let log = git.run(["log", "--pretty=%h|%s", "-n", "8"], in: rootURL) {
-            for line in log.split(separator: "\n") {
-                let parts = line.split(separator: "|", maxSplits: 1)
-                guard parts.count == 2 else { continue }
-                graph.upsertNode(KnowledgeNode(
-                    id: StableID("commit-\(repository.name.lowercased())-\(parts[0])"),
-                    title: String(parts[1]), type: .task, projectID: project.id,
-                    source: "git-log", summary: "commit \(parts[0])"
-                ))
-            }
+        for (sha, title) in collected.commits {
+            graph.upsertNode(KnowledgeNode(
+                id: StableID("commit-\(repository.name.lowercased())-\(sha)"),
+                title: title, type: .task, projectID: project.id,
+                source: "git-log", summary: "commit \(sha)"
+            ))
         }
-
-        let fm = FileManager.default
-        if let entries = try? fm.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-            for doc in entries where doc.pathExtension.lowercased() == "md" {
-                let name = doc.deletingPathExtension().lastPathComponent
-                graph.upsertNode(KnowledgeNode(
-                    id: StableID("doc-\(repository.name.lowercased())-\(name.lowercased())"),
-                    title: name, type: .document, projectID: project.id,
-                    source: "repo-docs", sourcePath: doc.path
-                ))
-            }
+        for name in collected.docNames {
+            graph.upsertNode(KnowledgeNode(
+                id: StableID("doc-\(repository.name.lowercased())-\(name.lowercased())"),
+                title: name, type: .document, projectID: project.id,
+                source: "repo-docs", sourcePath: repository.rootPath + "/\(name).md"
+            ))
         }
         document.graph = graph
+    }
+
+    /// Same-thread convenience: collect + apply inline. Call only where
+    /// blocking is legal (background tasks, tests) — never on MainActor.
+    public func ingest(repository: Repository, into document: inout StoreDocument) {
+        apply(collect(repository: repository), for: repository, into: &document)
     }
 }
 

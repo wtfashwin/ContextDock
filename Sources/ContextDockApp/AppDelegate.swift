@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var settingsWindow: NSWindow?
     private var onboardingWindow: NSWindow?
     private var discoveryTimer: Timer?
+    private var glassProbeController: NSWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
@@ -48,6 +49,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let appMenu = NSMenu()
         appMenu.addItem(NSMenuItem(title: "Settings…", action: #selector(openSettingsMenuItem), keyEquivalent: ","))
         appMenu.addItem(.separator())
+        let debugItem = NSMenuItem(title: "Debug: Glass Probe", action: #selector(openGlassProbeMenuItem), keyEquivalent: "")
+        debugItem.target = self
+        appMenu.addItem(debugItem)
+        appMenu.addItem(.separator())
         appMenu.addItem(NSMenuItem(title: "Quit ContextDock", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appItem.submenu = appMenu
         main.addItem(appItem)
@@ -60,6 +65,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // windows never self-release; delegate nils them on close.
     @objc nonisolated private func openSettingsMenuItem() {
         Task { @MainActor in (NSApp.delegate as? AppDelegate)?.openSettings() }
+    }
+
+    /// Isolated probe first (brief §3): NSGlassEffectView refraction away
+    /// from the notch, two labeled rows, nonactivating. Retained while open.
+    @objc nonisolated private func openGlassProbeMenuItem() {
+        Task { @MainActor in
+            guard let self = NSApp.delegate as? AppDelegate else { return }
+            if #available(macOS 26.0, *) {
+                if self.glassProbeController == nil {
+                    self.glassProbeController = ContextDockGlassProbeController()
+                }
+                (self.glassProbeController as? ContextDockGlassProbeController)?.present()
+            } else {
+                self.model.lastError = "Native Liquid Glass needs macOS 26+."
+            }
+        }
     }
 
     private func openSettings() {
