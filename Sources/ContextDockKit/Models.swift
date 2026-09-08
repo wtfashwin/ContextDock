@@ -313,7 +313,56 @@ public enum ChecklistTransition {
 
 // MARK: - Agent
 
-public enum AgentKind: String, Codable, Sendable { case claudeCode, codex, fake }
+public enum AgentKind: String, Codable, CaseIterable, Sendable {
+    case claudeCode, codex, gemini, cursor, opencode, qwen, copilot, codexCLI = "codexCLI", fake
+    // Back-compat: old payloads use "codex"; map both spellings on decode.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        let raw = try c.decode(String.self)
+        if raw == "codex" { self = .codex; return }
+        self = AgentKind(rawValue: raw) ?? .fake
+    }
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(rawValue)
+    }
+    public var displayName: String {
+        switch self {
+        case .claudeCode: return "Claude"
+        case .codex, .codexCLI: return "Codex"
+        case .gemini: return "Gemini"
+        case .cursor: return "Cursor"
+        case .opencode: return "OpenCode"
+        case .qwen: return "Qwen"
+        case .copilot: return "Copilot"
+        case .fake: return "Demo"
+        }
+    }
+    public var badge: String {
+        switch self {
+        case .claudeCode: return "C"
+        case .codex, .codexCLI: return "Cx"
+        case .gemini: return "G"
+        case .cursor: return "Cu"
+        case .opencode: return "Oc"
+        case .qwen: return "Q"
+        case .copilot: return "Cp"
+        case .fake: return "•"
+        }
+    }
+    public var processNames: [String] {
+        switch self {
+        case .claudeCode: return ["claude"]
+        case .codex, .codexCLI: return ["codex"]
+        case .gemini: return ["gemini"]
+        case .cursor: return ["cursor-agent"]
+        case .opencode: return ["opencode"]
+        case .qwen: return ["qwen"]
+        case .copilot: return ["copilot"]
+        case .fake: return []
+        }
+    }
+}
 
 public enum AgentEventType: String, Codable, CaseIterable, Sendable {
     case sessionStarted, sessionResumed, userPromptReceived, thinkingStarted
@@ -340,6 +389,17 @@ public struct AgentEvent: Codable, Hashable, Sendable {
     public var checklistItemID: StableID?
     public var rawSource: String?
     public var type: AgentEventType
+    // Vibe Island parity: optional rich fields. Missing keys decode as nil,
+    // so old payloads and third-party hook senders keep working.
+    public var terminal: String?
+    public var toolName: String?
+    public var diffText: String?
+    public var additions: Int?
+    public var deletions: Int?
+    public var question: String?
+    public var questionOptions: [String]?
+    public var logLine: String?
+    public var elapsedSeconds: Double?
     public init(
         schemaVersion: Int = Schema.version, eventID: StableID = .generate(prefix: "evt"),
         adapter: AgentKind, sessionID: StableID, timestamp: Date = .init(),
@@ -347,7 +407,11 @@ public struct AgentEvent: Codable, Hashable, Sendable {
         task: String? = nil, status: String = "ok", summary: String,
         filePath: String? = nil, command: String? = nil,
         checklistItemID: StableID? = nil, rawSource: String? = nil,
-        type: AgentEventType
+        type: AgentEventType,
+        terminal: String? = nil, toolName: String? = nil,
+        diffText: String? = nil, additions: Int? = nil, deletions: Int? = nil,
+        question: String? = nil, questionOptions: [String]? = nil,
+        logLine: String? = nil, elapsedSeconds: Double? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.eventID = eventID
@@ -364,6 +428,15 @@ public struct AgentEvent: Codable, Hashable, Sendable {
         self.checklistItemID = checklistItemID
         self.rawSource = rawSource
         self.type = type
+        self.terminal = terminal
+        self.toolName = toolName
+        self.diffText = diffText
+        self.additions = additions
+        self.deletions = deletions
+        self.question = question
+        self.questionOptions = questionOptions
+        self.logLine = logLine
+        self.elapsedSeconds = elapsedSeconds
     }
 }
 

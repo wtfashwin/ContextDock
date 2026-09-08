@@ -131,8 +131,18 @@ public struct CLIAgentAdapter: AgentAdapter {
         switch kind {
         case .claudeCode:
             args = ["-p", prompt, "--output-format", "stream-json", "--verbose"]
-        case .codex:
+        case .codex, .codexCLI:
             args = ["exec", "--json", prompt]
+        case .gemini:
+            args = [prompt]
+        case .cursor:
+            args = ["--print", prompt]
+        case .opencode:
+            args = ["run", prompt]
+        case .qwen:
+            args = [prompt]
+        case .copilot:
+            args = ["-p", prompt]
         case .fake:
             args = []
         }

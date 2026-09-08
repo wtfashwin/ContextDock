@@ -29,8 +29,16 @@ public struct CLIPlanner: PlannerEngine {
         switch kind {
         case .claudeCode:
             args = ["-p", prompt, "--output-format", "json", "--max-turns", "1"]
-        case .codex:
+        case .codex, .codexCLI:
             args = ["exec", "--json", prompt]
+        case .gemini, .qwen:
+            args = [prompt]
+        case .cursor:
+            args = ["--print", prompt]
+        case .opencode:
+            args = ["run", prompt]
+        case .copilot:
+            args = ["-p", prompt]
         case .fake:
             return try await fallback.plan(input)
         }

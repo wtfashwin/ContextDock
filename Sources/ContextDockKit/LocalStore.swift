@@ -14,6 +14,7 @@ public struct StoreDocument: Codable, Sendable {
     public var checklists: [Checklist] = []
     public var sessions: [AgentSession] = []
     public var events: [AgentEvent] = []
+    public var decisions: [UserDecision] = []
     public var preferences: [PreferenceSignal] = []
     public var audit: [AuditEvent] = []
     public var settings: [String: String] = [:]
