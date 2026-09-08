@@ -1,6 +1,6 @@
 # Context Dock
 
-*A native macOS notch island that turns a stray thought into a dispatched, tracked, and journaled agent task — without leaving your screen's top edge.*
+*A native macOS notch island that turns a stray thought into a dispatched, tracked, and journaled agent task.*
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Build](https://img.shields.io/github/actions/workflow/status/wtfashwin/ContextDock/ci.yml?branch=main)
@@ -14,46 +14,46 @@
 
 ## 1. About
 
-Context Dock lives in your MacBook's notch as a flush, always-available island. Capture a thought, get it matched against your live project context, pick a plan, and dispatch it to a coding agent — all without a Dock icon, a browser tab, or a context switch. It's built for developers running multiple AI coding agents across multiple projects who need one calm, native surface to route work through, not five terminal tabs and a mental map of who's doing what.
+Context Dock lives in your MacBook's notch as a flush, always-available island. Capture a thought, get it matched against your live project context, pick a plan, and dispatch it to a coding agent. No Dock icon, no browser tab, no context switch. It's built for developers running several coding agents across several projects who want one calm, native surface to route work through instead of five terminal tabs and a mental map of who's doing what.
 
 ### Key features
 
-**Core workflow**
-- **Notch-native island** — measured cutout geometry per MacBook model, with a no-notch fallback bar for external displays.
-- **Deterministic plan matching** — capture a thought and get three meaningfully different plans (Recommended / Fastest / Safest), each with a real, evidence-based checklist.
-- **Multi-agent live feed** — passive discovery plus rich socket events track every connected agent's status in one glance.
+Core workflow:
+- **Notch native island.** Measured cutout geometry per MacBook model, with a fallback bar for external displays.
+- **Deterministic plan matching.** Capture a thought and get three meaningfully different plans (Recommended, Fastest, Safest), each with a real, evidence based checklist.
+- **Multi agent live feed.** Passive discovery plus rich socket events track every connected agent's status at a glance.
 
-**Trust & control**
-- **Local-first by design** — your data stays on this Mac; nothing leaves until you explicitly send a reviewed context package.
-- **Approve/deny at the speed of thought** — keyboard-driven decisions (⌘Y / ⌘N / ⌘1-3) with an audit-logged event bus underneath.
-- **Obsidian vault writer** — atomic writes, revision backups, section-append that never clobbers your notes.
+Trust and control:
+- **Local first by design.** Your data stays on this Mac. Nothing leaves until you explicitly send a reviewed context package.
+- **Approve or deny at the speed of thought.** Keyboard driven decisions (⌘Y, ⌘N, ⌘1 to ⌘3) backed by an audit logged event bus.
+- **Obsidian vault writer.** Atomic writes, revision backups, and section append that never clobbers your notes.
 
-## 2. Tech Stack & Architecture
+## 2. Tech stack and architecture
 
 | Layer | Technology |
 |---|---|
-| UI shell | AppKit (`NSPanel`) + SwiftUI |
-| Core logic | Pure Swift (`ContextDockKit`, UI-free, fully unit tested) |
-| Concurrency | Swift 6 strict concurrency, actor-isolated state |
-| IPC | Local Unix-socket event bus, schema-validated, size-bounded |
-| Persistence | JSON in `Application Support`, atomic Obsidian vault writes |
+| UI shell | AppKit (`NSPanel`) and SwiftUI |
+| Core logic | Pure Swift (`ContextDockKit`, UI free, fully unit tested) |
+| Concurrency | Swift 6 strict concurrency, actor isolated state |
+| IPC | Local Unix socket event bus, schema validated, size bounded |
+| Persistence | JSON in Application Support, atomic Obsidian vault writes |
 | Testing | Swift Testing, 52 tests |
 
 ```
- Capture (⌥Space) → Context Match → Plan Select → Checklist
-        │                                              │
-        ▼                                              ▼
-  Local Event Bus  ◀──────────────────────────  Agent Adapter
-        │                                              │
-        ▼                                              ▼
-  Decision Journal                            Obsidian Vault Write
+ Capture (Option+Space) -> Context match -> Plan select -> Checklist
+        |                                                     |
+        v                                                     v
+  Local event bus  <----------------------------------  Agent adapter
+        |                                                     |
+        v                                                     v
+  Decision journal                                  Obsidian vault write
 ```
 
-## 3. Getting Started
+## 3. Getting started
 
 ### Prerequisites
 - macOS 15 or later
-- Swift 6 toolchain (Xcode Command Line Tools are enough — full Xcode is optional)
+- Swift 6 toolchain (Xcode Command Line Tools are enough; full Xcode is optional)
 
 ### Installation
 
@@ -69,7 +69,7 @@ cd ContextDock
 ./scripts/make_app.sh
 ```
 
-### Quick Start
+### Quick start
 
 ```bash
 # Launch the built app
@@ -79,22 +79,22 @@ open build/ContextDock.app
 open Package.swift
 ```
 
-Once running, press **Option+Space** anywhere to open the island, capture a thought, pick a plan, and let Context Dock track it through to completion.
+Once it's running, press Option+Space anywhere to open the island, capture a thought, pick a plan, and let Context Dock track it through to completion.
 
 ## 4. Roadmap
 
-- [x] Top-centre floating notch island with no-notch fallback
-- [x] Deterministic context matching with three-plan selection
-- [x] Obsidian vault writer with atomic, non-destructive writes
-- [x] Multi-agent live feed with passive + socket-based discovery
-- [x] Decision journal with confidence-scored pattern insights
-- [x] Liquid Glass UI on macOS 26 with matte fallback
-- [ ] Cross-platform companion for non-notch Macs and external monitors
-- [ ] Team-shared context packages (opt-in, still local-first)
-- [ ] Plugin API for third-party agent adapters
+- [x] Top centre floating notch island with a no notch fallback
+- [x] Deterministic context matching with three plan selection
+- [x] Obsidian vault writer with atomic, non destructive writes
+- [x] Multi agent live feed with passive and socket based discovery
+- [x] Decision journal with confidence scored pattern insights
+- [x] Liquid glass UI on macOS 26 with a matte fallback
+- [ ] Cross platform companion for non notch Macs and external monitors
+- [ ] Team shared context packages, opt in, still local first
+- [ ] Plugin API for third party agent adapters
 
-## 5. Contributing & License
+## 5. Contributing and license
 
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, style, and PR guidelines.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, style, and PR guidelines.
 
 Licensed under the [MIT License](LICENSE).
