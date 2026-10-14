@@ -19,6 +19,10 @@ This is a Swift application under active development. Some adapters and controls
 
 Swift 6, SwiftUI, AppKit, Swift Package Manager, and Swift Testing. No external Swift package dependencies are declared.
 
+## How it works
+
+A captured thought is matched to the configured project context and passed to the planner. The chosen plan becomes a task package for a CLI adapter. A local socket carries agent events back to the panel and journal; the Obsidian writer can save notes to the configured vault.
+
 ## Getting started
 
 Requirements: macOS 15 or later and a Swift 6 toolchain. Xcode Command Line Tools can build the Swift package; full Xcode can open `Package.swift`.
