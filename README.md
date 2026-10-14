@@ -63,12 +63,14 @@ See [architecture](docs/ARCHITECTURE.md), [Claude adapter notes](docs/CLAUDE_ADA
 
 ## Available checks
 
+From the repository root with Xcode 26 selected:
+
 ```bash
-./scripts/test.sh
 swift build
+swift test
 ```
 
-The test script adds framework search paths for Command Line Tools. If the compiler reports missing `TestingMacros` or `SwiftUIMacros`, check that the active toolchain and SDK are compatible; full Xcode is the supported CI path.
+For Command Line Tools, `./scripts/test.sh` adds framework search paths. If the compiler reports missing `TestingMacros` or `SwiftUIMacros`, check that the active toolchain and SDK are compatible; full Xcode is the supported CI path.
 
 [Swift checks](.github/workflows/swift.yml) build the package and run the tests on macOS for source changes. Hook tests use temporary settings and a local socket, including the generated Python sender. They do not launch the app, change your Claude settings, or call an agent provider. Package checks do not establish UI behavior or external CLI compatibility.
 
