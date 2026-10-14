@@ -1,102 +1,73 @@
-# Context Dock
+# ContextDock
 
-*A native macOS notch island that turns a stray thought into a dispatched, tracked, and journaled agent task.*
+A native macOS app for developers to capture a thought, match it to project context, choose a plan, and launch a coding agent from a notch-style panel.
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Build](https://img.shields.io/github/actions/workflow/status/wtfashwin/ContextDock/ci.yml?branch=main)
-![Version](https://img.shields.io/badge/version-1.0.0-informational)
-![Coverage](https://img.shields.io/badge/tests-52%20passing-brightgreen)
-![Platform](https://img.shields.io/badge/platform-macOS%2015%2B-lightgrey)
+## What it does
 
-<p align="center">
-  <img src="docs/assets/banner-placeholder.png" alt="Context Dock banner" width="720">
-</p>
+- Opens a floating island with Option+Space, with a fallback layout for displays without a notch.
+- Produces Recommended, Fastest, and Safest plans using an available Claude Code/Codex CLI or local rules.
+- Launches CLI tasks with a context package and displays agent events.
+- Tracks decisions and preferences in local storage.
+- Includes an Obsidian note writer with atomic writes and revision backups.
+- Accepts events through a local Unix socket and includes a demo event sender.
 
-## 1. About
+## Project status
 
-Context Dock lives in your MacBook's notch as a flush, always-available island. Capture a thought, get it matched against your live project context, pick a plan, and dispatch it to a coding agent. No Dock icon, no browser tab, no context switch. It's built for developers running several coding agents across several projects who want one calm, native surface to route work through instead of five terminal tabs and a mental map of who's doing what.
+This is a Swift application under active development. Some adapters and controls are partial: CLI output becomes generic events, attaching to an arbitrary existing session is incomplete, and the adapter cancellation method is currently empty. Documentation includes older limitation notes that may lag the code.
 
-### Key features
+## Built with
 
-Core workflow:
-- **Notch native island.** Measured cutout geometry per MacBook model, with a fallback bar for external displays.
-- **Deterministic plan matching.** Capture a thought and get three meaningfully different plans (Recommended, Fastest, Safest), each with a real, evidence based checklist.
-- **Multi agent live feed.** Passive discovery plus rich socket events track every connected agent's status at a glance.
+Swift 6, SwiftUI, AppKit, Swift Package Manager, and Swift Testing. No external Swift package dependencies are declared.
 
-Trust and control:
-- **Local first by design.** Your data stays on this Mac. Nothing leaves until you explicitly send a reviewed context package.
-- **Approve or deny at the speed of thought.** Keyboard driven decisions (⌘Y, ⌘N, ⌘1 to ⌘3) backed by an audit logged event bus.
-- **Obsidian vault writer.** Atomic writes, revision backups, and section append that never clobbers your notes.
+## Getting started
 
-## 2. Tech stack and architecture
-
-| Layer | Technology |
-|---|---|
-| UI shell | AppKit (`NSPanel`) and SwiftUI |
-| Core logic | Pure Swift (`ContextDockKit`, UI free, fully unit tested) |
-| Concurrency | Swift 6 strict concurrency, actor isolated state |
-| IPC | Local Unix socket event bus, schema validated, size bounded |
-| Persistence | JSON in Application Support, atomic Obsidian vault writes |
-| Testing | Swift Testing, 52 tests |
-
-```
- Capture (Option+Space) -> Context match -> Plan select -> Checklist
-        |                                                     |
-        v                                                     v
-  Local event bus  <----------------------------------  Agent adapter
-        |                                                     |
-        v                                                     v
-  Decision journal                                  Obsidian vault write
-```
-
-## 3. Getting started
-
-### Prerequisites
-- macOS 15 or later
-- Swift 6 toolchain (Xcode Command Line Tools are enough; full Xcode is optional)
-
-### Installation
+Requirements: macOS 15 or later and a Swift 6 toolchain. Xcode Command Line Tools can build the Swift package; full Xcode can open `Package.swift`.
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/wtfashwin/ContextDock.git
 cd ContextDock
-
-# 2. Run the test suite
-./scripts/test.sh
-
-# 3. Build the app bundle
 ./scripts/make_app.sh
 ```
 
-### Quick start
+Launching the app currently installs hooks automatically before onboarding. It writes scripts under `~/.contextdock/bin/` and merges hook entries into `~/.claude/settings.json`. Review [the installer](Sources/ContextDockKit/HookInstaller.swift) and back up existing Claude settings before the first launch.
 
 ```bash
-# Launch the built app
 open build/ContextDock.app
-
-# Or open the package directly in Xcode
-open Package.swift
 ```
-#Stop APPLICATION
-pkill -f ContextDock; echo done
 
-Once it's running, press Option+Space anywhere to open the island, capture a thought, pick a plan, and let Context Dock track it through to completion.
+The build script creates an app bundle and attempts local ad-hoc signing. It does not produce a notarized distribution.
 
-## 4. Roadmap
+Install and authenticate a supported agent CLI separately if you want AI planning or task dispatch. Without an available Claude Code/Codex CLI, planning falls back to local rules.
 
-- [x] Top centre floating notch island with a no notch fallback
-- [x] Deterministic context matching with three plan selection
-- [x] Obsidian vault writer with atomic, non destructive writes
-- [x] Multi agent live feed with passive and socket based discovery
-- [x] Decision journal with confidence scored pattern insights
-- [x] Liquid glass UI on macOS 26 with a matte fallback
-- [ ] Cross platform companion for non notch Macs and external monitors
-- [ ] Team shared context packages, opt in, still local first
-- [ ] Plugin API for third party agent adapters
+## Use it
 
-## 5. Contributing and license
+Press Option+Space, enter a thought, choose a plan, and review its checklist and task package before dispatch. Configure the project and optional Obsidian vault in the app. Agent activity appears in the island and local journal.
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, style, and PR guidelines.
+Planning itself can call an installed Claude Code or Codex CLI. That CLI may send the request, matched context, and learned preferences to its provider before task dispatch. Review the provider account and its data handling before using sensitive project context. Local storage does not mean every planning path is offline.
 
-Licensed under the [MIT License](LICENSE).
+## Structure and documentation
+
+| Path | Purpose |
+| --- | --- |
+| `Sources/ContextDockApp/` | SwiftUI views and AppKit panel |
+| `Sources/ContextDockKit/` | Planning, adapters, events, storage, and notes |
+| `Tests/ContextDockKitTests/` | Core test suite |
+| `scripts/make_app.sh` | Build the app bundle |
+| `scripts/fake_events.py` | Demo socket events |
+
+See [architecture](docs/ARCHITECTURE.md), [Claude adapter notes](docs/CLAUDE_ADAPTER.md), [Codex adapter notes](docs/CODEX_ADAPTER.md), and [contributing](CONTRIBUTING.md). Older [privacy](docs/PRIVACY.md) and [limitation](docs/KNOWN_LIMITATIONS.md) notes should be read alongside the current source.
+
+## Available checks
+
+```bash
+./scripts/test.sh
+swift build
+```
+
+The test script adds framework search paths when using Command Line Tools. These commands cover the Swift package; they do not establish UI behavior, external CLI compatibility, or provider integration.
+
+To stop the running app, use its app controls or, from a terminal, `pkill -x ContextDock`.
+
+## License
+
+[MIT](LICENSE).
