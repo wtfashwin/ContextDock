@@ -25,7 +25,7 @@ A captured thought is matched to the configured project context and passed to th
 
 ## Getting started
 
-Requirements: macOS 15 or later and a Swift 6 toolchain. Xcode Command Line Tools can build the Swift package; full Xcode can open `Package.swift`.
+The app targets macOS 15 or later. Building it requires Xcode 26 or a compatible Swift 6 toolchain with the macOS 26 SDK and macro plugins, because the UI includes newer glass APIs behind runtime availability checks. Full Xcode can open `Package.swift`; CI uses Xcode 26.3.
 
 ```bash
 git clone https://github.com/wtfashwin/ContextDock.git
@@ -33,7 +33,7 @@ cd ContextDock
 ./scripts/make_app.sh
 ```
 
-Launching the app currently installs hooks automatically before onboarding. It writes scripts under `~/.contextdock/bin/` and merges hook entries into `~/.claude/settings.json`. Review [the installer](Sources/ContextDockKit/HookInstaller.swift) and back up existing Claude settings before the first launch.
+Launching the app currently installs hooks automatically before onboarding. It writes scripts under `~/.contextdock/bin/` and merges hook entries into `~/.claude/settings.json`. Repeated installation keeps existing user settings and avoids duplicate managed commands. Malformed settings are left unchanged. Review [the installer](Sources/ContextDockKit/HookInstaller.swift) and back up existing Claude settings before the first launch.
 
 ```bash
 open build/ContextDock.app
@@ -68,7 +68,9 @@ See [architecture](docs/ARCHITECTURE.md), [Claude adapter notes](docs/CLAUDE_ADA
 swift build
 ```
 
-The test script adds framework search paths when using Command Line Tools. These commands cover the Swift package; they do not establish UI behavior, external CLI compatibility, or provider integration.
+The test script adds framework search paths for Command Line Tools. If the compiler reports missing `TestingMacros` or `SwiftUIMacros`, check that the active toolchain and SDK are compatible; full Xcode is the supported CI path.
+
+[Swift checks](.github/workflows/swift.yml) build the package and run the tests on macOS for source changes. Hook tests use temporary settings and a local socket, including the generated Python sender. They do not launch the app, change your Claude settings, or call an agent provider. Package checks do not establish UI behavior or external CLI compatibility.
 
 To stop the running app, use its app controls or, from a terminal, `pkill -x ContextDock`.
 
