@@ -25,7 +25,7 @@ A captured thought is matched to the configured project context and passed to th
 
 ## Getting started
 
-Requirements: macOS 15 or later and a Swift 6 toolchain. Full Xcode can open `Package.swift` and includes the frameworks needed for the app and tests. A Command Line Tools installation needs a compatible SDK and macro plugins.
+The app targets macOS 15 or later. Building it requires Xcode 26 or a compatible Swift 6 toolchain with the macOS 26 SDK and macro plugins, because the UI includes newer glass APIs behind runtime availability checks. Full Xcode can open `Package.swift`; CI uses Xcode 26.3.
 
 ```bash
 git clone https://github.com/wtfashwin/ContextDock.git

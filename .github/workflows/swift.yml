@@ -26,10 +26,15 @@ jobs:
   test:
     runs-on: macos-15
     timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@v6
       - name: Show the active toolchain
-        run: swift --version
+        run: |
+          xcodebuild -version
+          swift --version
+          xcrun --sdk macosx --show-sdk-version
       - name: Check shell scripts
         run: bash -n scripts/test.sh scripts/make_app.sh
       - name: Build the package
