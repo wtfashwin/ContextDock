@@ -1,0 +1,38 @@
+name: Swift checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Package.swift'
+      - 'Sources/**'
+      - 'Tests/**'
+      - 'scripts/**'
+      - '.github/workflows/swift.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Package.swift'
+      - 'Sources/**'
+      - 'Tests/**'
+      - 'scripts/**'
+      - '.github/workflows/swift.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Show the active toolchain
+        run: swift --version
+      - name: Check shell scripts
+        run: bash -n scripts/test.sh scripts/make_app.sh
+      - name: Build the package
+        run: swift build
+      - name: Run the tests
+        run: swift test
